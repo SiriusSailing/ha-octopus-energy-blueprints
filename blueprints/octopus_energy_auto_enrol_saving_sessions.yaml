@@ -1,0 +1,91 @@
+blueprint:
+  name: "Octopus Energy: Auto-enrol in Octoplus Saving Sessions"
+  description: >-
+    Automatically joins any available **Octoplus Saving Session** events the
+    moment they are announced, and sends push notifications to your mobile
+    device when a session is detected and when enrolment is confirmed.
+
+
+    **How it works**
+
+    Triggers whenever the Saving Session events entity changes (i.e. when
+    Octopus publishes a new session) and on Home Assistant startup (to catch
+    any sessions missed while HA was offline). If there are unjoined sessions
+    in `available_events`, it enrolls in all of them via the
+    `octopus_energy.join_octoplus_saving_session_event` service, sending a
+    push notification on detection and again on completion.
+
+
+    **Requirements**
+
+    - [Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy)
+    by BottlecapDave, installed and configured
+
+    - Home Assistant [Mobile App](https://companion.home-assistant.io/)
+    integration for push notifications
+
+    - An active Octoplus membership
+  domain: automation
+  input:
+    saving_session_events_entity:
+      name: Saving Session Events Entity
+      description: >-
+        The Octoplus saving session events entity for your account.
+        In Settings → Devices & Services → Octopus Energy it is named
+        **"Octoplus (A-XXXXXXXX) Octoplus Saving Session Events"**.
+      selector:
+        entity:
+          domain: event
+    notify_target:
+      name: Notification Target
+      description: >-
+        The notification service name to send push alerts to. For a mobile
+        device this is typically `notify.mobile_app_<device_name>`. Find yours
+        under Developer Tools → Actions → search "notify".
+      default: notify.mobile_app_my_phone
+      selector:
+        text:
+
+variables:
+  saving_session_events_entity: !input saving_session_events_entity
+  notify_target: !input notify_target
+
+triggers:
+  - trigger: state
+    entity_id: !input saving_session_events_entity
+  - trigger: homeassistant
+    event: start
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ state_attr(saving_session_events_entity, 'available_events') | count > 0 }}
+
+actions:
+  - variables:
+      session_count: >-
+        {{ state_attr(saving_session_events_entity, 'available_events') | count | int }}
+  - action: "{{ notify_target }}"
+    data:
+      title: "Octoplus: Saving Session Detected"
+      message: >-
+        {% set avail = state_attr(saving_session_events_entity, 'available_events') %}
+        {% if session_count == 1 %}New saving session on
+        {{ avail[0].start | as_timestamp | timestamp_custom('%a %-d %b, %-I:%M %p', True) }}
+        ({{ avail[0].octopoints_per_kwh }} pts/kWh) — enrolling now.{% else %}
+        {{ session_count }} new saving sessions detected — enrolling now.{% endif %}
+  - repeat:
+      count: "{{ session_count }}"
+      sequence:
+        - action: octopus_energy.join_octoplus_saving_session_event
+          target:
+            entity_id: "{{ saving_session_events_entity }}"
+          data:
+            event_code: >-
+              {{ state_attr(saving_session_events_entity, 'available_events')[repeat.index - 1]['code'] }}
+  - action: "{{ notify_target }}"
+    data:
+      title: "Octoplus: Saving Session Joined"
+      message: "Auto-enrolled in {{ session_count }} saving session(s)."
+
+mode: single
