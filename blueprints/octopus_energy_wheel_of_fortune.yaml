@@ -26,6 +26,7 @@ blueprint:
 
     **Tip:** Create two separate automations from this blueprint — one for
     the electricity sensor and one for the gas sensor.
+  source_url: https://community.home-assistant.io/t/octopus-energy-spin-the-wheel-automatically/1018027/4
   domain: automation
   input:
     spins_sensor:
