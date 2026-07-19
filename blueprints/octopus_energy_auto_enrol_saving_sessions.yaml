@@ -25,6 +25,7 @@ blueprint:
     integration for push notifications
 
     - An active Octoplus membership
+  source_url: https://community.home-assistant.io/t/octopus-energy-auto-enrol-in-octoplus-saving-sessions/1018037
   domain: automation
   input:
     saving_session_events_entity:
