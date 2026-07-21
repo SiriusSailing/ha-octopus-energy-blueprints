@@ -75,12 +75,12 @@ actions:
   - repeat:
       count: "{{ states(spins_sensor) | int(0) }}"
       sequence:
-        - action: octopus_energy.spin_wheel_of_fortune
-          target:
-            entity_id: !input spins_sensor
-          response_variable: spin_result
         - if: "{{ win_history_helper != '' }}"
           then:
+            - action: octopus_energy.spin_wheel_of_fortune
+              target:
+                entity_id: !input spins_sensor
+              response_variable: spin_result
             - variables:
                 history_raw: "{{ states(win_history_helper) }}"
                 history_list: >-
@@ -92,5 +92,9 @@ actions:
                 entity_id: "{{ win_history_helper }}"
               data:
                 value: "{{ new_history }}"
+          else:
+            - action: octopus_energy.spin_wheel_of_fortune
+              target:
+                entity_id: !input spins_sensor
 
 mode: single
