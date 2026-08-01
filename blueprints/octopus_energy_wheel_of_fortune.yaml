@@ -11,9 +11,9 @@ blueprint:
     Home Assistant startup (with a 1-minute delay to let the integration
     initialise). Spins the wheel once per available spin.
 
-    Optionally records each win (amount in pence + date) in an `input_text`
-    helper as a compact JSON list, keeping the last 10 wins — useful for
-    displaying win history on a dashboard.
+    Optionally records each spin date in an `input_text` helper as a compact
+    JSON list, keeping the last 10 entries — useful for displaying spin history
+    on a dashboard.
 
 
     **Requirements**
@@ -42,8 +42,9 @@ blueprint:
     win_history_helper:
       name: Win History Helper (optional)
       description: >-
-        An `input_text` entity to store the last 10 wins as a compact JSON list
-        — each entry is `["DD Mon YYYY", pence]`. Leave blank to skip tracking.
+        An `input_text` entity to store the last 10 spin dates as a compact
+        JSON list — each entry is `["DD Mon YYYY"]`. Leave blank to skip
+        tracking.
       default: ""
       selector:
         text:
@@ -75,26 +76,21 @@ actions:
   - repeat:
       count: "{{ states(spins_sensor) | int(0) }}"
       sequence:
+        - action: octopus_energy.spin_wheel_of_fortune
+          target:
+            entity_id: !input spins_sensor
         - if: "{{ win_history_helper != '' }}"
           then:
-            - action: octopus_energy.spin_wheel_of_fortune
-              target:
-                entity_id: !input spins_sensor
-              response_variable: spin_result
             - variables:
                 history_raw: "{{ states(win_history_helper) }}"
                 history_list: >-
                   {{ history_raw | from_json if history_raw not in ['', 'unknown', 'unavailable'] else [] }}
                 new_history: >-
-                  {{ ([[now().strftime('%d %b %Y'), spin_result.amount_won_in_pence | int]] + history_list)[:10] | to_json }}
+                  {{ ([[now().strftime('%d %b %Y')]] + history_list)[:10] | to_json }}
             - action: input_text.set_value
               target:
                 entity_id: "{{ win_history_helper }}"
               data:
                 value: "{{ new_history }}"
-          else:
-            - action: octopus_energy.spin_wheel_of_fortune
-              target:
-                entity_id: !input spins_sensor
 
 mode: single
