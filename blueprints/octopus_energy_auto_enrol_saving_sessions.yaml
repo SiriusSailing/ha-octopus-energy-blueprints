@@ -15,6 +15,11 @@ blueprint:
     `octopus_energy.join_octoplus_saving_session_event` service, sending a
     push notification on detection and again on completion.
 
+    Each join is attempted independently — if one fails (e.g. Octopus
+    announces a session before its join window opens), the others still
+    proceed and the automation retries the whole set next time the entity
+    updates.
+
 
     **Requirements**
 
@@ -79,6 +84,7 @@ actions:
       count: "{{ session_count }}"
       sequence:
         - action: octopus_energy.join_octoplus_saving_session_event
+          continue_on_error: true
           target:
             entity_id: "{{ saving_session_events_entity }}"
           data:
