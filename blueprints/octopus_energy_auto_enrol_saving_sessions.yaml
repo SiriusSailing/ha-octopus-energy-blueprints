@@ -114,7 +114,7 @@ actions:
          | selectattr('code', 'in', joinable_events | map(attribute='code') | list)
          | list | count == 0 }}
     timeout:
-      seconds: 90
+      minutes: 20
     continue_on_timeout: true
   - if:
       - condition: template
