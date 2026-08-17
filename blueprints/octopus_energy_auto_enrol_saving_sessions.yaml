@@ -8,12 +8,10 @@ blueprint:
 
     **How it works**
 
-    Triggers whenever the Saving Session events entity changes (i.e. when
-    Octopus publishes a new session) and on Home Assistant startup (to catch
-    any sessions missed while HA was offline). If there are unjoined sessions
-    in `available_events`, it enrolls in all of them via the
-    `octopus_energy.join_octoplus_saving_session_event` service, sending a
-    push notification on detection and again on completion.
+    Triggers on three signals: a new saving session event being announced, a
+    periodic entity update (every ~15 minutes, used for retries), and Home
+    Assistant startup. If there are unjoined sessions in `available_events`,
+    it enrolls in all of them.
 
     Only standard saving sessions (where `octopoints_per_kwh > 0`) are joined.
     Free electricity sessions (`octopoints_per_kwh = 0`) appear in the same
@@ -21,8 +19,13 @@ blueprint:
 
     Each join is attempted independently — if one fails (e.g. Octopus
     announces a session before its join window opens), the others still
-    proceed and the automation retries the whole set next time the entity
-    updates.
+    proceed and the automation retries silently every ~15 minutes.
+
+    A "Detected" notification is sent only on a new announcement or HA startup.
+    A "Joined" notification is sent only once the join is confirmed (the OE
+    integration force-refreshes within ~60 s of a successful join). If the
+    join window is not yet open, a one-time "Pending" notification is sent
+    and retries continue silently until enrolment is confirmed.
 
 
     **Requirements**
@@ -61,10 +64,15 @@ variables:
   notify_target: !input notify_target
 
 triggers:
+  - trigger: event
+    event_type: octopus_energy_new_octoplus_saving_session
+    id: new_session
   - trigger: state
     entity_id: !input saving_session_events_entity
+    id: entity_update
   - trigger: homeassistant
     event: start
+    id: startup
 
 conditions:
   - condition: template
@@ -78,14 +86,19 @@ actions:
         {{ state_attr(saving_session_events_entity, 'available_events')
            | rejectattr('octopoints_per_kwh', 'equalto', 0) | list }}
       session_count: "{{ joinable_events | count | int }}"
-  - action: "{{ notify_target }}"
-    data:
-      title: "Octoplus: Saving Session Detected"
-      message: >-
-        {% if session_count == 1 %}New saving session on
-        {{ joinable_events[0].start | as_timestamp | timestamp_custom('%a %-d %b, %-I:%M %p', True) }}
-        ({{ joinable_events[0].octopoints_per_kwh }} pts/kWh) — enrolling now.{% else %}
-        {{ session_count }} new saving sessions detected — enrolling now.{% endif %}
+      is_announcement: "{{ trigger.id in ['new_session', 'startup'] }}"
+  - if:
+      - condition: template
+        value_template: "{{ is_announcement }}"
+    then:
+      - action: "{{ notify_target }}"
+        data:
+          title: "Octoplus: Saving Session Detected"
+          message: >-
+            {% if session_count == 1 %}New saving session on
+            {{ joinable_events[0].start | as_timestamp | timestamp_custom('%a %-d %b, %-I:%M %p', True) }}
+            ({{ joinable_events[0].octopoints_per_kwh }} pts/kWh) — enrolling now.{% else %}
+            {{ session_count }} new saving sessions detected — enrolling now.{% endif %}
   - repeat:
       count: "{{ session_count }}"
       sequence:
@@ -95,9 +108,35 @@ actions:
             entity_id: "{{ saving_session_events_entity }}"
           data:
             event_code: "{{ joinable_events[repeat.index - 1]['code'] }}"
-  - action: "{{ notify_target }}"
-    data:
-      title: "Octoplus: Saving Session Joined"
-      message: "Auto-enrolled in {{ session_count }} saving session(s)."
+  - wait_template: >-
+      {{ (state_attr(saving_session_events_entity, 'available_events') or [])
+         | rejectattr('octopoints_per_kwh', 'equalto', 0)
+         | selectattr('code', 'in', joinable_events | map(attribute='code') | list)
+         | list | count == 0 }}
+    timeout:
+      seconds: 90
+    continue_on_timeout: true
+  - if:
+      - condition: template
+        value_template: "{{ wait.completed }}"
+    then:
+      - action: "{{ notify_target }}"
+        data:
+          title: "Octoplus: Saving Session Joined"
+          message: >-
+            {% if session_count == 1 %}Enrolled in the saving session on
+            {{ joinable_events[0].start | as_timestamp | timestamp_custom('%a %-d %b, %-I:%M %p', True) }}.
+            {% else %}Enrolled in {{ session_count }} saving sessions.{% endif %}
+    else:
+      - if:
+          - condition: template
+            value_template: "{{ is_announcement }}"
+        then:
+          - action: "{{ notify_target }}"
+            data:
+              title: "Octoplus: Enrolment Pending"
+              message: >-
+                Octopus join window not yet open — enrolment will be retried
+                automatically every ~15 minutes until confirmed.
 
 mode: single
